@@ -1,7 +1,7 @@
 <!-- eslint-disable import/order -->
 <script setup>
-import { computed, ref } from "vue";
-
+import { computed, ref, watch } from "vue";
+import { useAppKit } from '@reown/appkit/vue';
 import { router } from "@inertiajs/vue3";
 import { debouncedWatch, useUrlSearchParams } from "@vueuse/core";
 import {
@@ -28,12 +28,42 @@ import BarButton from "@/Pages/Launchpads/BarButton.vue";
 import IndexCard from "@/Pages/Launchpads/IndexCard.vue";
 import { useChainId } from "@wagmi/vue";
 
+// AppKit modal control
+const { open, close } = useAppKit();
+
+// 🔒 Prevent multiple simultaneous open calls
+let isOpening = false;
+
+// Connect wallet button
+const openConnectModal = () => {
+    if (isOpening) return;
+    isOpening = true;
+    open();
+    setTimeout(() => { isOpening = false; }, 1000);
+};
+
+// Switch network button
+let networkSwitchTimeout = null;
+const openNetworkModal = () => {
+    if (isOpening) return;
+    isOpening = true;
+    open({ view: 'Networks' });
+    setTimeout(() => { isOpening = false; }, 1000);
+    
+    if (networkSwitchTimeout) clearTimeout(networkSwitchTimeout);
+    networkSwitchTimeout = setTimeout(() => {
+        close();
+        networkSwitchTimeout = null;
+    }, 5000);
+};
+
 const props = defineProps({
     launchpads: [Array, Object],
     top: Array,
     usdRates: [Array, Object],
     type: String,
 });
+
 const launchpadsList = computed(() => props.launchpads.data);
 const launchpadsInfo = useLaunchpadsData(launchpadsList, props.usdRates);
 const showHowItWorks = ref(false);
@@ -47,6 +77,18 @@ const filters = [
 const params = useUrlSearchParams("history");
 const search = ref(params.search ?? "");
 const chainId = useChainId();
+
+// Watch for network changes and close modal
+watch(chainId, (newChainId, oldChainId) => {
+    if (oldChainId && newChainId !== oldChainId) {
+        if (networkSwitchTimeout) {
+            clearTimeout(networkSwitchTimeout);
+            networkSwitchTimeout = null;
+        }
+        close();
+    }
+});
+
 debouncedWatch(
     [search],
     ([search]) => {
@@ -59,9 +101,7 @@ debouncedWatch(
             },
         );
     },
-    {
-        maxWait: 700,
-    },
+    { maxWait: 700 },
 );
 const animate = ref(true);
 </script>
@@ -145,7 +185,16 @@ const animate = ref(true);
                     </div>
                 </div>
                 <div class="flex gap-4 items-center my-8 mx-4 justify-center sm:justify-start sm:mx-[unset] flex-wrap">
-                    <appkit-network-button v-if="chainId" />
+                    <!-- ✅ Fixed: regular button using AppKit modal -->
+                    <BaseButton
+                        v-if="chainId"
+                        @click="openNetworkModal"
+                        secondary
+                        size="xs"
+                        class="font-semibold !px-4"
+                    >
+                        Switch Network
+                    </BaseButton>
                     <BaseButton
                         @click="animate = !animate"
                         size="xss"
@@ -162,8 +211,7 @@ const animate = ref(true);
                         :key="filter.id"
                         :href="route('launchpads.index', {
                             type: filter.id == 'trending' ? '' : filter.id,
-                        })
-                            "
+                        })"
                         :secondary="filter.id != type"
                         link
                         size="xs"
